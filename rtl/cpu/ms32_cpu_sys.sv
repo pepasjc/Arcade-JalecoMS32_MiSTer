@@ -92,6 +92,11 @@ module ms32_cpu_sys #(
 	output logic [7:0]  nv_rdata,
 	output logic        nv_written,
 
+	// clk_sys: RetroAchievements RAM mirror, read-only second port of the work
+	// RAM (32-bit word index, data one clock later; V70 byte order)
+	input  logic [14:0] ra_rd_addr,
+	output logic [31:0] ra_rd_q,
+
 	// clk_sys: capture loader, one write per request
 	input  logic        ld_req,           // held until ld_ack
 	input  logic [31:0] ld_addr,
@@ -274,12 +279,13 @@ module ms32_cpu_sys #(
 
 	// ------------------------------------------------------------- RAMs
 	// work RAM: 0x20000 bytes, 32-bit
-	logic [31:0] wram [0:32767];
+	// (rtl/ra/ms32_ra_wram.sv: the same RAM with a read-only port B in clk_sys
+	// for the RetroAchievements mirror)
 	logic [31:0] wram_q;
-	always_ff @(posedge clk_cpu) begin
-		for (int i = 0; i < 4; i++) if (wr && is_wram && m_be[i]) wram[a[16:2]][8*i +: 8] <= m_wdata[8*i +: 8];
-		wram_q <= wram[a[16:2]];
-	end
+	ms32_ra_wram u_wram (
+		.clk_a(clk_cpu), .a_addr(a[16:2]), .a_be({4{wr && is_wram}} & m_be), .a_wdata(m_wdata), .a_rdata(wram_q),
+		.clk_b(clk_sys), .b_addr(ra_rd_addr), .b_rdata(ra_rd_q)
+	);
 
 	// NVRAM: 0x2000 bytes, 8-bit, battery-backed on the board. Port B is the
 	// HPS's read-back when it saves the .mra's <nvram> file (clk_sys); the

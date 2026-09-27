@@ -81,7 +81,7 @@ localparam DEBUG_MENU_HIDE = 1'b1;
 wire debug_menu_hide = DEBUG_MENU_HIDE;
 
 localparam CONF_STR = {
-	"MS32;;",
+	"RA_MS32;;",
 	"-;",
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[64:63],Rotation,Auto,Off,CW,CCW;",
@@ -493,19 +493,25 @@ wire        p_rd, p_we;
 wire [7:0]  p_burstcnt, p_be;
 wire [28:0] p_addr;
 wire [63:0] p_din;
-assign c_rd       = ldr_active ? p_rd       : k_rd;
-assign c_we       = ldr_active ? p_we       : k_we;
-assign c_burstcnt = ldr_active ? p_burstcnt : k_burstcnt;
-assign c_be       = ldr_active ? p_be       : k_be;
-assign c_addr     = ldr_active ? p_addr     : k_addr;
-assign c_din      = ldr_active ? p_din      : k_din;
+// q_*: the loader or the video path, which the RetroAchievements mirror
+// shares the c_* side with (ra_ddr_arb, at the end of this file)
+wire        q_rd, q_we, q_busy;
+wire [7:0]  q_burstcnt, q_be;
+wire [28:0] q_addr;
+wire [63:0] q_din;
+assign q_rd       = ldr_active ? p_rd       : k_rd;
+assign q_we       = ldr_active ? p_we       : k_we;
+assign q_burstcnt = ldr_active ? p_burstcnt : k_burstcnt;
+assign q_be       = ldr_active ? p_be       : k_be;
+assign q_addr     = ldr_active ? p_addr     : k_addr;
+assign q_din      = ldr_active ? p_din      : k_din;
 
 wire        ldr_ddr_req, ldr_ddr_busy, ldr_ddr_valid;
 wire [27:0] ldr_ddr_addr;
 wire [63:0] ldr_ddr_rdata;
 ddram_phy u_ldr_ddram (
 	.clk(clk_sys), .reset(~ldr_active),
-	.DDRAM_BUSY(c_busy), .DDRAM_BURSTCNT(p_burstcnt), .DDRAM_ADDR(p_addr), .DDRAM_DOUT(c_dout),
+	.DDRAM_BUSY(q_busy), .DDRAM_BURSTCNT(p_burstcnt), .DDRAM_ADDR(p_addr), .DDRAM_DOUT(c_dout),
 	.DDRAM_DOUT_READY(c_dout_ready), .DDRAM_RD(p_rd), .DDRAM_DIN(p_din), .DDRAM_BE(p_be), .DDRAM_WE(p_we),
 	.req(ldr_ddr_req), .we(1'b0), .addr(ldr_ddr_addr), .wdata(8'd0),
 	.busy(ldr_ddr_busy), .valid(ldr_ddr_valid), .rdata(ldr_ddr_rdata)
@@ -536,6 +542,13 @@ end
 wire       snd_reset, snd_cmd_we, snd_tomain_we;
 wire [7:0] snd_cmd_data, snd_tomain_data;
 
+// RetroAchievements mirror read port into the work RAM (see RETROACHIEVEMENTS)
+wire [13:0] ra_mw;                              // mirror word (32-bit) index
+wire [14:0] ra_ram_addr = (ra_mw[13:12] != 2'b11) ? {1'b0, ra_mw} + 15'h1000 :   // +0x04000 bytes
+                          !ra_mw[11]              ? {1'b0, ra_mw} + 15'h3000 :   // +0x0C000 bytes
+                                                    {1'b0, ra_mw} + 15'h4000;    // +0x10000 bytes
+wire [31:0] ra_ram_q;
+
 ms32_core u_core (
 	.clk_sys(clk_sys), .clk_cpu(clk_cpu), .sys_reset(sys_reset | ldr_active),
 	.cpu_run(core_run), .pause(pause_toggle), .invert_lines(mod_byte[2]),
@@ -548,6 +561,7 @@ ms32_core u_core (
 	.dbg_mem_en(dbg_mem_en), .dbg_mem_reg(dbg_mem_reg), .dbg_mem_addr(dbg_mem_addr), .dbg_mem_data(dbg_mem_data),
 	.dbg_fpu_max(dbg_fpu_max), .dbg_fpu_runs(dbg_fpu_runs),
 	.nv_addr(ioctl_addr[12:0]), .nv_rdata(nv_rdata), .nv_written(nv_written),
+	.ra_rd_addr(ra_ram_addr), .ra_rd_q(ra_ram_q),
 	.snd_reset(snd_reset), .snd_cmd_we(snd_cmd_we), .snd_cmd_data(snd_cmd_data),
 	.snd_tomain_we(snd_tomain_we), .snd_tomain_data(snd_tomain_data),
 	.ld_req(ld_req), .ld_addr(ld_addr), .ld_be(ld_be), .ld_data(ld_data), .ld_ack(ld_ack),
@@ -558,7 +572,7 @@ ms32_core u_core (
 	.spr_req(spr_req), .spr_addr(spr_addr), .spr_valid(spr_valid), .spr_data(spr_data),
 	.obj_rreq(obj_rreq), .obj_raddr(obj_raddr), .obj_rvalid(obj_rvalid), .obj_rdata(obj_rdata),
 	.obj_wreq(obj_wreq), .obj_waddr(obj_waddr), .obj_we16(obj_we16), .obj_wdata(obj_wdata), .obj_wbusy(obj_wbusy),
-	.DDRAM_BUSY(c_busy | ldr_active), .DDRAM_BURSTCNT(k_burstcnt), .DDRAM_ADDR(k_addr), .DDRAM_DOUT(c_dout),
+	.DDRAM_BUSY(q_busy | ldr_active), .DDRAM_BURSTCNT(k_burstcnt), .DDRAM_ADDR(k_addr), .DDRAM_DOUT(c_dout),
 	.DDRAM_DOUT_READY(c_dout_ready & ~ldr_active), .DDRAM_RD(k_rd), .DDRAM_DIN(k_din), .DDRAM_BE(k_be), .DDRAM_WE(k_we),
 	.ce_pix(ce_pix), .hblank(hblank), .vblank(vblank), .hsync(hsync), .vsync(vsync), .r(r), .g(g), .b(b),
 	.vblank_ev(core_vblank_ev),
@@ -567,6 +581,43 @@ ms32_core u_core (
 	.dbg_roz_fill(dbg_roz_fill), .dbg_roz_hit(dbg_roz_hit), .dbg_roz_pen_nz(dbg_roz_pen_nz),
 	.dbg_spr_ovr_ev(dbg_spr_ovr_ev), .dbg_fb_ovr_ev(dbg_fb_ovr_ev), .dbg_roz_ovr_ev(dbg_roz_ovr_ev), .dbg_road_ovr_ev(dbg_road_ovr_ev), .dbg_copy_done(dbg_copy_done), .dbg_spr_cycles(dbg_spr_cycles), .dbg_spr_wait(dbg_spr_wait),
 	.dbg_pc()
+);
+
+///////////////////////   RETROACHIEVEMENTS   ////////////////////
+
+// RetroAchievements RAM mirror (rtl/ra/ra_mirror_gather.v, from jotego's
+// JTFRAME jtframe_ra_mirror.v). Once per VBlank 64 kB of the V70 work RAM
+// (0xFEE00000, 128 kB) is copied to DDR3 at 0x3D000000 in the "RACH" layout
+// the RA build of Main_MiSTer reads. RA arcade sets use FinalBurn Neo's
+// d_ms32.cpp "All Ram" area, which starts with this work RAM (DrvV60RAM at
+// offset 0), and the V70 is little-endian, so RA byte N = work RAM byte N.
+// The copier reads the work RAM itself through a second port (no shadow: the
+// device has 26 M10K left), in three windows that hold every address the
+// tetrisp set reads:
+//   mirror 0x0000-0xBFFF <- RA 0x04000-0x0FFFF
+//   mirror 0xC000-0xDFFF <- RA 0x18000-0x19FFF
+//   mirror 0xE000-0xFFFF <- RA 0x1E000-0x1FFFF
+// The DDR side is a client of ra_ddr_arb in front of ms32_ddram_mux's core
+// port, so the video path's frame-buffer bursts interleave with its bursts.
+reg  [31:0] ra_ram_q_r;
+always @(posedge clk_sys) ra_ram_q_r <= ra_ram_q;
+wire        ra_we, ra_busy, ra_rd_en;
+wire [7:0]  ra_burstcnt, ra_be;
+wire [28:0] ra_addr;
+wire [63:0] ra_din;
+ra_mirror_gather #(.DW(32), .RD_LAT(2)) u_ra_mirror (
+	.rst(~pll_locked), .clk(clk_sys),
+	.vblank(vblank), .hold(ioctl_download | ldr_active | ldr_pending),
+	.rd_en(ra_rd_en), .rd_addr(ra_mw), .rd_data(ra_ram_q_r),
+	.ddr_we(ra_we), .ddr_busy(ra_busy), .ddr_burstcnt(ra_burstcnt), .ddr_addr(ra_addr),
+	.ddr_be(ra_be), .ddr_din(ra_din), .active()
+);
+ra_ddr_arb u_ra_arb (
+	.clk(clk_sys), .rst(~pll_locked),
+	.ddr_busy(c_busy), .ddr_dout_ready(c_dout_ready),
+	.c0_rd(q_rd), .c0_we(q_we), .c0_addr(q_addr), .c0_be(q_be), .c0_din(q_din), .c0_burstcnt(q_burstcnt), .c0_busy(q_busy),
+	.c1_we(ra_we), .c1_addr(ra_addr), .c1_be(ra_be), .c1_din(ra_din), .c1_burstcnt(ra_burstcnt), .c1_busy(ra_busy),
+	.ddr_rd(c_rd), .ddr_we(c_we), .ddr_addr(c_addr), .ddr_be(c_be), .ddr_din(c_din), .ddr_burstcnt(c_burstcnt)
 );
 
 ///////////////////////   SOUND   /////////////////////////////////

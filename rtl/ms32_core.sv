@@ -28,6 +28,10 @@ module ms32_core (
 	output logic [7:0]  nv_rdata,
 	output logic        nv_written,
 
+	// clk_sys: RetroAchievements mirror, read-only port of the work RAM
+	input  logic [14:0] ra_rd_addr,
+	output logic [31:0] ra_rd_q,
+
 	// clk_sys: the sound board (ms32_sound, outside the core: the T80 is VHDL
 	// and the Verilator benches run this module)
 	output logic        snd_reset,        // one clock: sysctrl 0x38 written with bit 0 set
@@ -132,6 +136,7 @@ module ms32_core (
 		.dbg_road_over(dbg_road_over), .dbg_road_vw(dbg_road_vw), .dbg_road_lw(dbg_road_lw),
 		.dbg_fpu_max(dbg_fpu_max), .dbg_fpu_runs(dbg_fpu_runs),
 		.nv_addr(nv_addr), .nv_rdata(nv_rdata), .nv_written(nv_written),
+		.ra_rd_addr(ra_rd_addr), .ra_rd_q(ra_rd_q),
 		.vreg_we(vreg_we), .vreg_off(vreg_off), .vreg_data(vreg_data),
 		.vblank_ev(vblank_ev), .field_ev(field_ev),
 		.snd_cmd_we(snd_cmd_we), .snd_cmd_data(snd_cmd_data),
